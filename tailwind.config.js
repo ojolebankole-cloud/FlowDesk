@@ -1,0 +1,1 @@
+export default {content:["./index.html","./src/**/*.{js,ts,jsx,tsx}"],theme:{extend:{colors:{violet:{accent:"#7657f6"}}}},plugins:[]};

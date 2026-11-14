@@ -1,0 +1,2 @@
+import { api } from './api';
+export const billingService={plans:()=>api<any>('/billing/plans'),overview:(w:string)=>api<any>(`/billing/workspaces/${w}`),checkout:(w:string,planCode:string,interval:'month'|'year')=>api<any>(`/billing/workspaces/${w}/checkout`,{method:'POST',body:JSON.stringify({planCode,interval})}),cancel:(w:string)=>api<any>(`/billing/workspaces/${w}/cancel`,{method:'POST'}),resume:(w:string)=>api<any>(`/billing/workspaces/${w}/resume`,{method:'POST'}),portal:(w:string)=>api<any>(`/billing/workspaces/${w}/portal`,{method:'POST'})};

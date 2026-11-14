@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+
+# Build output
+dist/
+backend/dist/
+coverage/
+
+# Environment secrets
+.env*
+!.env.example
+!.env.production.example
+backend/.env*
+!backend/.env.example
+!backend/.env.production.example
+
+# Secret files and backups
+secrets/
+backups/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime uploads
+backend/storage/uploads/*
+!backend/storage/uploads/.gitkeep
+
+# Logs
+*.log
+npm-debug.log*
+
+# Operating system
+.DS_Store
+
+# TypeScript
+*.tsbuildinfo

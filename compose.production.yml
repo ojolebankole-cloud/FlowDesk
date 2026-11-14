@@ -1,0 +1,124 @@
+name: flowdesk
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-flowdesk}"
+      POSTGRES_USER: "${POSTGRES_USER:-flowdesk}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set a strong POSTGRES_PASSWORD}"
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [private]
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?Set a strong REDIS_PASSWORD}"
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [private]
+  clamav:
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    volumes: [clamav_data:/var/lib/clamav]
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    networks: [private]
+  minio:
+    image: minio/minio:RELEASE.2025-02-07T23-21-09Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}"
+    volumes: [object_data:/data]
+    networks: [private]
+  minio-init:
+    image: minio/mc:RELEASE.2025-02-08T19-14-21Z
+    depends_on: [minio]
+    entrypoint: ["/bin/sh", "-c", "until mc alias set local http://minio:9000 \"$${MINIO_ROOT_USER}\" \"$${MINIO_ROOT_PASSWORD}\"; do sleep 2; done; mc mb --ignore-existing local/flowdesk-files; mc anonymous set none local/flowdesk-files; mc version enable local/flowdesk-files; mc admin policy info local flowdesk-files-policy >/dev/null 2>&1 || mc admin policy create local flowdesk-files-policy /etc/minio/flowdesk-policy.json; mc admin user info local \"$${S3_ACCESS_KEY_ID}\" >/dev/null 2>&1 || mc admin user add local \"$${S3_ACCESS_KEY_ID}\" \"$${S3_SECRET_ACCESS_KEY}\"; mc admin policy attach local flowdesk-files-policy --user \"$${S3_ACCESS_KEY_ID}\""]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+    volumes:
+      - ./deploy/minio/flowdesk-policy.json:/etc/minio/flowdesk-policy.json:ro
+    networks: [private]
+    restart: "no"
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - .env.production
+      - ./backend/.env.production
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-flowdesk}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-flowdesk}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: flowdesk-files
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Set dedicated S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set dedicated S3_SECRET_ACCESS_KEY}
+      TRUST_PROXY: "true"
+      METRICS_TOKEN: "${METRICS_TOKEN:?Set a random METRICS_TOKEN of at least 32 characters}"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      clamav: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    expose: ["4000"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/v1/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks: [private, edge]
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    restart: unless-stopped
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--config.expand-env", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=15d"]
+    environment:
+      METRICS_TOKEN: "${METRICS_TOKEN:?Set METRICS_TOKEN}"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports: ["127.0.0.1:9090:9090"]
+    depends_on: [api]
+    networks: [private]
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:?Set public API base URL}
+    restart: unless-stopped
+    depends_on: [api]
+    ports: ["${WEB_PORT:-8080}:80"]
+    networks: [edge]
+volumes:
+  postgres_data:
+  redis_data:
+  clamav_data:
+  object_data:
+  prometheus_data:
+networks:
+  private:
+    internal: true
+  edge:

@@ -1,0 +1,2 @@
+import { Controller,Get,Query,Req,UseGuards } from '@nestjs/common';import { SessionGuard } from '../auth/session.guard';import { WorkspaceRoleGuard,WorkspaceRoles } from '../common/roles';import { ReportsService } from './reports.service';
+@Controller('workspaces/:workspaceId/reports') @UseGuards(SessionGuard,WorkspaceRoleGuard) export class ReportsController{constructor(private s:ReportsService){} @Get('summary') @WorkspaceRoles('dashboard:read') summary(@Req()r:any,@Query('from')f?:string,@Query('to')t?:string){return this.s.summary(r.user.id,r.params.workspaceId,f,t)}}
