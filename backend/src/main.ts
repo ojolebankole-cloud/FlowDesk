@@ -14,8 +14,13 @@ async function bootstrap(){
  app.setGlobalPrefix('api/v1');
  app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],baseUri:["'self'"],frameAncestors:["'none'"],objectSrc:["'none'"],scriptSrc:["'self'"],styleSrc:["'self'","'unsafe-inline'"],imgSrc:["'self'",'data:','https:'],connectSrc:["'self'",...((config.get<string>('WEB_ORIGIN')||'').split(',').map(v=>v.trim()).filter(Boolean))],upgradeInsecureRequests:config.get('NODE_ENV')==='production'?[]:null}},crossOriginEmbedderPolicy:false}));
  app.use(cookieParser());
- app.disable('x-powered-by');
- app.set('trust proxy', config.get('TRUST_PROXY') === 'true' ? 1 : false);
+ const expressApp = app.getHttpAdapter().getInstance();
+
+ expressApp.disable('x-powered-by');
+ expressApp.set(
+   'trust proxy',
+   config.get('TRUST_PROXY') === 'true' ? 1 : false,
+ );
  app.use(createRedisRateLimitMiddleware(config.get<string>('REDIS_URL'),config.get('NODE_ENV')==='production'));
  const allowedOrigins=(config.get<string>('WEB_ORIGIN')||'http://localhost:5173').split(',').map(v=>v.trim());
  app.use((req,res,next)=>{
